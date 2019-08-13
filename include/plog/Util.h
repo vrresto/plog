@@ -6,14 +6,6 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 
-#ifndef PLOG_ENABLE_WCHAR_INPUT
-#   ifdef _WIN32
-#       define PLOG_ENABLE_WCHAR_INPUT 1
-#   else
-#       define PLOG_ENABLE_WCHAR_INPUT 0
-#   endif
-#endif
-
 #ifdef _WIN32
 #   include <plog/WinApi.h>
 #   include <time.h>
@@ -23,41 +15,23 @@
 #elif defined(__rtems__)
 #   include <unistd.h>
 #   include <rtems.h>
-#   if PLOG_ENABLE_WCHAR_INPUT
-#       include <iconv.h>
-#   endif
 #else
 #   include <unistd.h>
 #   include <sys/syscall.h>
 #   include <sys/time.h>
 #   include <pthread.h>
-#   if PLOG_ENABLE_WCHAR_INPUT
-#       include <iconv.h>
-#   endif
 #endif
 
-#ifdef _WIN32
-#   define _PLOG_NSTR(x)   L##x
-#   define PLOG_NSTR(x)    _PLOG_NSTR(x)
-#else
-#   define PLOG_NSTR(x)    x
-#endif
+#define PLOG_NSTR(x)    x
 
 namespace plog
 {
     namespace util
     {
-#ifdef _WIN32
-        typedef std::wstring nstring;
-        typedef std::wostringstream nostringstream;
-        typedef std::wistringstream nistringstream;
-        typedef wchar_t nchar;
-#else
         typedef std::string nstring;
         typedef std::ostringstream nostringstream;
         typedef std::istringstream nistringstream;
         typedef char nchar;
-#endif
 
         inline void localtime_s(struct tm* t, const time_t* time)
         {
@@ -128,59 +102,6 @@ namespace plog
 #endif
         }
 
-#if PLOG_ENABLE_WCHAR_INPUT && !defined(_WIN32)
-        inline std::string toNarrow(const wchar_t* wstr)
-        {
-            size_t wlen = ::wcslen(wstr);
-            std::string str(wlen * sizeof(wchar_t), 0);
-
-            if (!str.empty())
-            {
-                const char* in = reinterpret_cast<const char*>(&wstr[0]);
-                char* out = &str[0];
-                size_t inBytes = wlen * sizeof(wchar_t);
-                size_t outBytes = str.size();
-
-                iconv_t cd = ::iconv_open("UTF-8", "WCHAR_T");
-                ::iconv(cd, const_cast<char**>(&in), &inBytes, &out, &outBytes);
-                ::iconv_close(cd);
-
-                str.resize(str.size() - outBytes);
-            }
-
-            return str;
-        }
-#endif
-
-#ifdef _WIN32
-        inline std::wstring toWide(const char* str)
-        {
-            size_t len = ::strlen(str);
-            std::wstring wstr(len, 0);
-
-            if (!wstr.empty())
-            {
-                int wlen = MultiByteToWideChar(codePage::kActive, 0, str, static_cast<int>(len), &wstr[0], static_cast<int>(wstr.size()));
-                wstr.resize(wlen);
-            }
-
-            return wstr;
-        }
-
-        inline std::string toNarrow(const std::wstring& wstr, long page)
-        {
-            std::string str(wstr.size() * sizeof(wchar_t), 0);
-
-            if (!str.empty())
-            {
-                int len = WideCharToMultiByte(page, 0, wstr.c_str(), static_cast<int>(wstr.size()), &str[0], static_cast<int>(str.size()), 0, 0);
-                str.resize(len);
-            }
-
-            return str;
-        }
-#endif
-
         inline std::string processFuncName(const char* func)
         {
 #if (defined(_WIN32) && !defined(__MINGW32__)) || defined(__OBJC__)
@@ -209,11 +130,7 @@ namespace plog
 
         inline const nchar* findExtensionDot(const nchar* fileName)
         {
-#ifdef _WIN32
-            return std::wcsrchr(fileName, L'.');
-#else
             return std::strrchr(fileName, '.');
-#endif
         }
 
         inline void splitFileName(const nchar* fileName, nstring& fileNameNoExt, nstring& fileExt)
@@ -242,94 +159,6 @@ namespace plog
         private:
             NonCopyable(const NonCopyable&);
             NonCopyable& operator=(const NonCopyable&);
-        };
-
-        class File : NonCopyable
-        {
-        public:
-            File() : m_file(-1)
-            {
-            }
-
-            File(const nchar* fileName) : m_file(-1)
-            {
-                open(fileName);
-            }
-
-            ~File()
-            {
-                close();
-            }
-
-            off_t open(const nchar* fileName)
-            {
-#if defined(_WIN32) && (defined(__BORLANDC__) || defined(__MINGW32__))
-                m_file = ::_wsopen(fileName, _O_CREAT | _O_WRONLY | _O_BINARY, SH_DENYWR, _S_IREAD | _S_IWRITE);
-#elif defined(_WIN32)
-                ::_wsopen_s(&m_file, fileName, _O_CREAT | _O_WRONLY | _O_BINARY, _SH_DENYWR, _S_IREAD | _S_IWRITE);
-#else
-                m_file = ::open(fileName, O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-#endif
-                return seek(0, SEEK_END);
-            }
-
-            int write(const void* buf, size_t count)
-            {
-#ifdef _WIN32
-                return m_file != -1 ? ::_write(m_file, buf, static_cast<unsigned int>(count)) : -1;
-#else
-                return m_file != -1 ? static_cast<int>(::write(m_file, buf, count)) : -1;
-#endif
-            }
-
-            template<class CharType>
-            int write(const std::basic_string<CharType>& str)
-            {
-                return write(str.data(), str.size() * sizeof(CharType));
-            }
-
-            off_t seek(off_t offset, int whence)
-            {
-#ifdef _WIN32
-                return m_file != -1 ? ::_lseek(m_file, offset, whence) : -1;
-#else
-                return m_file != -1 ? ::lseek(m_file, offset, whence) : -1;
-#endif
-            }
-
-            void close()
-            {
-                if (m_file != -1)
-                {
-#ifdef _WIN32
-                    ::_close(m_file);
-#else
-                    ::close(m_file);
-#endif
-                    m_file = -1;
-                }
-            }
-
-            static int unlink(const nchar* fileName)
-            {
-#ifdef _WIN32
-                return ::_wunlink(fileName);
-#else
-                return ::unlink(fileName);
-#endif
-            }
-
-            static int rename(const nchar* oldFilename, const nchar* newFilename)
-            {
-#ifdef _WIN32
-                return MoveFileW(oldFilename, newFilename);
-#else
-                return ::rename(oldFilename, newFilename);
-#endif
-            }
-
-        private:
-            int m_file;
         };
 
         class Mutex : NonCopyable
