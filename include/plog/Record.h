@@ -31,6 +31,19 @@ namespace plog
             util::ftime(&m_time);
         }
 
+        Record(Severity severity)
+            : m_severity(severity),
+              m_tid(util::gettid()),
+              m_object(nullptr),
+              m_line(0),
+              m_func(""),
+              m_file(""),
+              m_text_only(true)
+        {
+            util::ftime(&m_time);
+        }
+
+
         Record& ref() 
         { 
             return *this; 
@@ -105,6 +118,8 @@ namespace plog
             return m_file;
         }
 
+        bool isTextOnly() const { return m_text_only; }
+
         virtual ~Record() // virtual destructor to satisfy -Wnon-virtual-dtor warning
         {
         }
@@ -120,5 +135,6 @@ namespace plog
         const char* const       m_file;
         mutable std::string     m_funcStr;
         mutable util::nstring   m_messageStr;
+        bool m_text_only = false;
     };
 }
