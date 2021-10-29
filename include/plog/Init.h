@@ -6,15 +6,6 @@
 
 namespace plog
 {
-    namespace
-    {
-        bool isCsv(const util::nchar* fileName)
-        {
-            const util::nchar* dot = util::findExtensionDot(fileName);
-            return dot && 0 == std::strcmp(dot, ".csv");
-        }
-    }
-
     //////////////////////////////////////////////////////////////////////////
     // Empty initializer / one appender
 
